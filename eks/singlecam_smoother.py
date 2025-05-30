@@ -31,6 +31,7 @@ def fit_eks_singlecam(
     blocks: list = [],
     avg_mode: str = 'median',
     var_mode: str = 'confidence_weighted_var',
+    pcutoff_per_model: float | list | None = None,
     verbose: bool = False,
 ) -> tuple:
     """Fit the Ensemble Kalman Smoother for single-camera data.
@@ -49,6 +50,8 @@ def fit_eks_singlecam(
             'median' | 'mean'
         var_mode: mode for computing ensemble variance
             'var' | 'confidence_weighted_var'
+        pcutoff: Likelihood cutoff threshold(s). Values below this are set to zero.
+                Can be a single float (for all models) or a list (one per model).
         verbose: Extra print statements if True
 
     Returns:
@@ -75,6 +78,7 @@ def fit_eks_singlecam(
         blocks=blocks,
         avg_mode=avg_mode,
         var_mode=var_mode,
+        pcutoff_per_model=pcutoff_per_model,
         verbose=verbose
     )
 
@@ -95,6 +99,7 @@ def ensemble_kalman_smoother_singlecam(
     blocks: list = [],
     avg_mode: str = 'median',
     var_mode: str = 'confidence_weighted_var',
+    pcutoff_per_model: float | list | None = None, 
     verbose: bool = False,
 ) -> tuple:
     """Perform Ensemble Kalman Smoothing for single-camera data.
@@ -118,6 +123,32 @@ def ensemble_kalman_smoother_singlecam(
         tuple: Dataframes with smoothed predictions, final smoothing parameters.
 
     """
+
+    if pcutoff_per_model is not None:
+        # Get dimensions
+        n_models = marker_array.array.shape[0]
+        
+        # Handle pcutoff as either a single value or a list of values
+        if isinstance(pcutoff_per_model, (int, float)):
+            pcutoffs = [pcutoff_per_model] * n_models
+        else:
+            if len(pcutoff_per_model) != n_models:
+                raise ValueError(f"pcutoff list length ({len(pcutoff_per_model)}) must match number of models ({n_models})")
+            pcutoffs = pcutoff_per_model
+            
+        # Find likelihood index in data_fields
+        likelihood_idx = marker_array.data_fields.index("likelihood")
+        
+        # Apply thresholds for each model
+        for m in range(n_models):
+            # Find values below threshold
+            below_threshold = marker_array.array[m, ..., likelihood_idx] < pcutoffs[m]
+            
+            # Set likelihoods below threshold to zero
+            marker_array.array[m, ..., likelihood_idx][below_threshold] = 0.0
+            
+        if verbose:
+            print(f"Applied likelihood threshold(s): {pcutoffs}")
 
     n_models, n_cameras, n_frames, n_keypoints, n_data_fields = marker_array.shape
 
